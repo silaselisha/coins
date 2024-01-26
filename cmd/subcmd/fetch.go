@@ -11,24 +11,12 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/silaselisha/coins/util"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
-var (
-	Top bool
-
-	FetchCmd = &cobra.Command{
-		Use:   "fetch",
-		Short: "Fetch crypto coins info",
-		Long:  "Fetch coins based on the crypto conin symbol provided",
-		Run: func(cmd *cobra.Command, args []string) {
-			res := fetchCoins()
-			printCryptoData(res)
-		},
-	}
-)
-
-type MarketData struct {
+type marketData struct {
 	Price            float64     `json:"price"`
 	Volume24h        float64     `json:"volume_24h"`
 	VolumeChange24h  float64     `json:"volume_change_24h"`
@@ -44,7 +32,7 @@ type MarketData struct {
 	LastUpdated      time.Time   `json:"last_updated"`
 }
 
-type CryptoCurrency struct {
+type cryptoCurrency struct {
 	ID                  int64       `json:"id"`
 	Name                string      `json:"name"`
 	Symbol              string      `json:"symbol"`
@@ -59,15 +47,43 @@ type CryptoCurrency struct {
 	CMCRank             float64     `json:"cmc_rank"`
 	LastUpdated         time.Time   `json:"last_updated"`
 	Quote               struct {
-		Currency MarketData `json:"USD"`
+		Currency marketData `json:"USD"`
 	} `json:"quote"`
 }
 
 type Response struct {
-	Data []*CryptoCurrency `json:"data"`
+	Data []*cryptoCurrency `json:"data"`
 }
 
-func printCryptoData(data []*CryptoCurrency) {
+var (
+  Listing string
+	FetchCmd = &cobra.Command{
+		Use:   "fetch",
+		Short: "Fetch crypto coins info",
+		Long:  "Fetch coins based on the crypto conin symbol provided",
+		Run: func(cmd *cobra.Command, args []string) {
+      value := viper.GetString("listing")
+      go asciiLoader(100 * time.Millisecond)
+			request := serverRequestHandler(value)
+      data := clientRequestHandler(request)
+			printCryptoData(data)
+		},
+	}
+)
+
+func asciiLoader(delay time.Duration) {
+  fmt.Print(`    
+ ___  ___  _   _  ___  _____  __     ___  __   _  _   _  ___  
+(  _)(   )( \_/ )(   )(_   _)(  )   (  _)(  ) ( )( \ ( )/  _) 
+| |  | O  |\   / | O  | | |  /  \   | |  /  \ | || \\| |\_"-. 
+( )_ ( _ (  ( )  ( __/  ( ) ( O  )  ( )_( O  )( )( )\\ ) __) )
+/___\/_\\_| |_|  /_\    /_\  \__/   /___\\__/ /_\/_\ \_\/___/ 
+                                                                
+`)
+  time.Sleep(delay)
+}
+
+func printCryptoData(data []*cryptoCurrency) {
 	const format = "%v\t%v\t%v\t%v\t%v\t%v\t%v\t\n"
 	tw := new(tabwriter.Writer).Init(os.Stdout, 0, 8, 3, ' ', 0)
 	fmt.Fprintf(tw, format, "Name", "Symbol", "Price", "Max Supply", "Market Cap", "Volume in 24h", "Percent Change 24h")
@@ -78,9 +94,36 @@ func printCryptoData(data []*CryptoCurrency) {
 	tw.Flush()
 }
 
-func fetchCoins() []*CryptoCurrency {
-	client := &http.Client{}
-	req, err := http.NewRequest("GET", "https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest", nil)
+func clientRequestHandler(req *http.Request) ([]*cryptoCurrency) {
+  client := &http.Client{}
+  resp, err := client.Do(req)
+  if err != nil {
+    log.Panic(err)
+  }
+
+  data, err := io.ReadAll(resp.Body)
+  if err != nil {
+    log.Panic(err)
+  }
+
+  var result Response
+	if err := json.Unmarshal([]byte(data), &result); err != nil {
+		fmt.Println("error unmarshalling...")
+		log.Print(err)
+	}
+  return result.Data
+}
+
+
+func serverRequestHandler(listing string) *http.Request {
+  envs, err := util.LoadEnvs(".")
+  if err != nil {
+    log.Print(err)
+  }
+  
+  endpoint := fmt.Sprintf("https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/%v", listing)
+
+	req, err := http.NewRequest("GET", endpoint, nil)
 	if err != nil {
 		log.Print(err)
 	}
@@ -90,25 +133,7 @@ func fetchCoins() []*CryptoCurrency {
 	q.Add("convert", "USD")
 
 	req.Header.Set("Accepts", "application/json")
-	req.Header.Set("X-CMC_PRO_API_KEY", "72e39124-91eb-4a1c-8499-15f995f9d779")
+	req.Header.Set("X-CMC_PRO_API_KEY", envs.ApiKey)
 	req.URL.RawQuery = q.Encode()
-
-	resp, err := client.Do(req)
-	if err != nil {
-		fmt.Println("error sending a request to the server")
-		log.Print(err)
-	}
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		fmt.Println("error reading a request body")
-		log.Print(err)
-	}
-
-	var result Response
-	if err := json.Unmarshal([]byte(data), &result); err != nil {
-		fmt.Println("error unmarshalling...")
-		log.Print(err)
-	}
-	return result.Data
+	return req
 }
