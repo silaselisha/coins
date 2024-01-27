@@ -12,7 +12,7 @@ var (
     Short: "Application version",
     Long: "Log the program version for program backwards compatibility",
     Run: func(cmd *cobra.Command, args []string) {
-      fmt.Println("coins version 1.0.0")
+      fmt.Println("coins version v1.0.0")
     },
 	}
 )
